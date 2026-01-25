@@ -53,6 +53,11 @@ PRODUCT_PLATFORM                := sun
 TARGET_BOOTLOADER_BOARD_NAME    := sun
 
 # Crypto
+
+BOARD_USES_QCOM_FBE_DECRYPTION := true
+TW_INCLUDE_CRYPTO_FBE := true
+TW_INCLUDE_FBE_METADATA_DECRYPT := true
+TW_USE_FSCRYPT_POLICY := 2
 BOARD_USES_METADATA_PARTITION   := true
 TW_INCLUDE_CRYPTO               := true
 TW_INCLUDE_OMAPI                := true
@@ -66,8 +71,10 @@ RECOVERY_BINARY_SOURCE_FILES    += $(TARGET_OUT_EXECUTABLES)/debuggerd
 RECOVERY_BINARY_SOURCE_FILES    += $(TARGET_OUT_EXECUTABLES)/strace
 
 # File systems
+BOARD_USERDATAIMAGE_FILE_SYSTEM_TYPE := f2fs
+TARGET_USERIMAGES_USE_EXT4 := true
 TARGET_USERIMAGES_USE_F2FS := true
-TW_USE_DMCTL               := true
+TW_USE_DMCTL			   := true
 
 # Init
 TARGET_INIT_VENDOR_LIB          := //$(DEVICE_PATH):libinit_oplus_sm87xx
@@ -86,9 +93,9 @@ BOARD_RAMDISK_USE_LZ4       := true
 BOARD_PROPERTY_OVERRIDES_SPLIT_ENABLED  := true
 BOARD_RECOVERYIMAGE_PARTITION_SIZE      := 0x6400000
 
-BOARD_SUPER_PARTITION_SIZE                  := 15569256448
+BOARD_SUPER_PARTITION_SIZE                  := 14956888064
 BOARD_SUPER_PARTITION_GROUPS                := qti_dynamic_partitions
-BOARD_QTI_DYNAMIC_PARTITIONS_SIZE           := 15565062144
+BOARD_QTI_DYNAMIC_PARTITIONS_SIZE           := 14952693760
 BOARD_QTI_DYNAMIC_PARTITIONS_PARTITION_LIST := system system_ext product vendor vendor_dlkm odm
 BOARD_QTI_DYNAMIC_PARTITIONS_PARTITION_LIST += my_bigball my_carrier my_company my_engineering my_heytap my_manifest my_preload my_product my_region my_stock
 
@@ -115,7 +122,7 @@ TW_INCLUDE_ZSTD               := true
 
 # TWRP display
 TW_BRIGHTNESS_PATH      := /sys/class/backlight/panel0-backlight/brightness
-TW_DEFAULT_BRIGHTNESS   := 1000
+TW_DEFAULT_BRIGHTNESS   := 700
 TW_FRAMERATE            := 120
 TW_MAX_BRIGHTNESS       := 2047
 TW_SCREEN_BLANK_ON_BOOT := true
@@ -144,6 +151,7 @@ BOARD_AVB_ENABLE := true
 TW_SUPPORT_INPUT_AIDL_HAPTICS := true
 
 # Other TWRP Configurations
+TW_DEFAULT_LANGUAGE                     := zh_CN
 TARGET_RECOVERY_QCOM_RTC_FIX            := true
 TW_CUSTOM_CPU_TEMP_PATH                 := "/sys/class/thermal/thermal_zone45/temp" # CPU-0-0-0
 TW_EXCLUDE_APEX                         := true

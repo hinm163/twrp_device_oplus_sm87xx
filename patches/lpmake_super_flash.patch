@@ -1,0 +1,378 @@
+diff --git a/data.cpp b/data.cpp
+index feb58ff..cdab90d 100644
+--- a/data.cpp
++++ b/data.cpp
+@@ -755,7 +755,7 @@ void DataManager::SetDefaultValues()
+ #endif
+ 	mConst.SetValue(TW_MIN_SYSTEM_VAR, TW_MIN_SYSTEM_SIZE);
+ 	mData.SetValue(TW_BACKUP_NAME, "(Auto Generate)");
+-
++    mPersist.SetValue(TW_INSTALL_SUPER_VAR, "0");
+ 	mPersist.SetValue(TW_INSTALL_REBOOT_VAR, "0");
+ 	mPersist.SetValue(TW_SIGNED_ZIP_VERIFY_VAR, "0");
+ 	mPersist.SetValue(TW_DISABLE_FREE_SPACE_VAR, "0");
+diff --git a/gui/theme/common/languages/en.xml b/gui/theme/common/languages/en.xml
+index 7918231..195c573 100755
+--- a/gui/theme/common/languages/en.xml
++++ b/gui/theme/common/languages/en.xml
+@@ -688,6 +688,11 @@
+ 		<string name="backup_error">Error creating backup.</string>
+ 		<string name="restore_error">Error during restore process.</string>
+ 		<string name="split_thread">Splitting thread ID {1} into archive {2}</string>
++		
++		<string name="install_took_seconds_msg">Install took {1} second(s)</string>
++		<string name="lpmake_super_success">install completed successfully!</string>
++		<string name="lpmake_super_fail">install failed!</string>
++		
+ 		<!-- These 2 items are saved in the data manager instead of resource manager, so %llu, etc is correct instead of {1} -->
+ 		<string name="file_progress">%llu of %llu files, %i%%</string>
+ 		<string name="size_progress">%lluMB of %lluMB, %i%%</string>
+diff --git a/gui/theme/common/portrait.xml b/gui/theme/common/portrait.xml
+index 30b4df0..de230a3 100755
+--- a/gui/theme/common/portrait.xml
++++ b/gui/theme/common/portrait.xml
+@@ -373,6 +373,9 @@
+ 				<listitem name="{@skip_digest_zip_chk=Skip Digest check before installing zip}">
+ 					<data variable="tw_skip_digest_check_zip"/>
+ 				</listitem>
++				<listitem name="{@lpmake_super=Flash ROM via super.img packaging}">
++					<data variable="tw_install_super"/>
++				</listitem>
+ 				<listitem name="{@auto_reflashtwrp_chk=Automatically Reflash TWRP after flashing a ROM}">
+ 					<conditions>
+ 						<condition var1="tw_has_boot_slots" var2="1"/>
+diff --git a/gui/theme/extra-languages/languages/zh_CN.xml b/gui/theme/extra-languages/languages/zh_CN.xml
+index 2363ed5..3718fd4 100644
+--- a/gui/theme/extra-languages/languages/zh_CN.xml
++++ b/gui/theme/extra-languages/languages/zh_CN.xml
+@@ -686,6 +686,12 @@
+ 		<string name="backup_error">建立备份失败。</string>
+ 		<string name="restore_error">在恢复过程中发生错误。</string>
+ 		<string name="split_thread">拆分线程 ID {1} 到压缩文件 {2}</string>
++		
++		<string name="lpmake_super">通过合成super.img快速刷入ROM</string>
++		<string name="install_took_seconds_msg">安装用时 {1} 秒</string>
++		<string name="lpmake_super_success">安装成功！</string>
++		<string name="lpmake_super_fail">安装失败!</string>
++		
+ 		<!-- These 2 items are saved in the data manager instead of resource manager, so %llu, etc is correct instead of {1} -->
+ 		<string name="file_progress">已完成 %llu 个，共 %llu 个文件，进度 %i%%</string>
+ 		<string name="size_progress">已完成 %lluMB，共 %lluMB，进度 %i%%</string>
+diff --git a/twrpinstall/twinstall.cpp b/twrpinstall/twinstall.cpp
+index 089ea14..f6659b5 100755
+--- a/twrpinstall/twinstall.cpp
++++ b/twrpinstall/twinstall.cpp
+@@ -1,26 +1,20 @@
+ /*
+ 	Copyright 2012 to 2017 bigbiff/Dees_Troy TeamWin
+ 	This file is part of TWRP/TeamWin Recovery Project.
+-
+ 	TWRP is free software: you can redistribute it and/or modify
+ 	it under the terms of the GNU General Public License as published by
+ 	the Free Software Foundation, either version 3 of the License, or
+ 	(at your option) any later version.
+-
+ 	TWRP is distributed in the hope that it will be useful,
+ 	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ 	GNU General Public License for more details.
+-
+ 	You should have received a copy of the GNU General Public License
+ 	along with TWRP.  If not, see <http://www.gnu.org/licenses/>.
+ */
+-
+-
+ #ifndef _GNU_SOURCE
+ #define _GNU_SOURCE
+ #endif
+-
+ #include <ctype.h>
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -29,17 +23,13 @@
+ #include <sys/stat.h>
+ #include <sys/wait.h>
+ #include <unistd.h>
+-
+ #include <string.h>
+ #include <stdio.h>
+ #include <cutils/properties.h>
+-
+ #include <android-base/unique_fd.h>
+-
+ #include "twcommon.h"
+ #include "mtdutils/mounts.h"
+ #include "mtdutils/mtdutils.h"
+-
+ #include "otautil/sysutil.h"
+ #include <ziparchive/zip_archive.h>
+ #include "twinstall/install.h"
+@@ -60,8 +50,10 @@ extern "C" {
+ 	#include "gui/gui.h"
+ }
+ 
+-#define AB_OTA "payload_properties.txt"
+ 
++static int Process_lpmake_super(const char *path, int* wipe_cache);
++
++#define AB_OTA "payload_properties.txt"
+ enum zip_type {
+ 	UNKNOWN_ZIP_TYPE = 0,
+ 	UPDATE_BINARY_ZIP_TYPE,
+@@ -130,7 +122,6 @@ static int Prepare_Update_Binary(ZipArchiveHandle Zip) {
+ 		LOGERR("Could not extract '%s'\n", UPDATE_BINARY_NAME);
+ 		return INSTALL_ERROR;
+ 	}
+-
+ 	// If exists, extract file_contexts from the zip file
+ 	std::string file_contexts("file_contexts");
+ 	ZipEntry64 file_contexts_entry;
+@@ -152,13 +143,11 @@ static int Prepare_Update_Binary(ZipArchiveHandle Zip) {
+ 	return INSTALL_SUCCESS;
+ }
+ 
+-
+ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) {
+ 	int ret_val, pipe_fd[2], status, zip_verify;
+ 	char buffer[1024];
+ 	FILE* child_data;
+ 	pipe(pipe_fd);
+-
+ 	std::vector<std::string> args;
+     if (ztype == UPDATE_BINARY_ZIP_TYPE) {
+ 		ret_val = update_binary_command(path, 0, pipe_fd[1], &args);
+@@ -173,13 +162,11 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype)
+         close(pipe_fd[1]);
+         return ret_val;
+     }
+-
+ 	// Convert the vector to a NULL-terminated char* array suitable for execv.
+ 	const char* chr_args[args.size() + 1];
+ 	chr_args[args.size()] = NULL;
+ 	for (size_t i = 0; i < args.size(); i++)
+ 		chr_args[i] = args[i].c_str();
+-
+ 	pid_t pid = fork();
+ 	if (pid == 0) {
+ 		close(pipe_fd[0]);
+@@ -188,9 +175,7 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype)
+ 		_exit(-1);
+ 	}
+ 	close(pipe_fd[1]);
+-
+ 	*wipe_cache = 0;
+-
+ 	DataManager::GetValue(TW_SIGNED_ZIP_VERIFY_VAR, zip_verify);
+ 	child_data = fdopen(pipe_fd[0], "r");
+ 	while (fgets(buffer, sizeof(buffer), child_data) != NULL) {
+@@ -200,10 +185,8 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype)
+ 		} else if (strcmp(command, "progress") == 0) {
+ 			char* fraction_char = strtok(NULL, " \n");
+ 			char* seconds_char = strtok(NULL, " \n");
+-
+ 			float fraction_float = strtof(fraction_char, NULL);
+ 			int seconds_float = strtol(seconds_char, NULL, 10);
+-
+ 			if (zip_verify)
+ 				DataManager::ShowProgress(fraction_float * (1 - VERIFICATION_PROGRESS_FRACTION), seconds_float);
+ 			else
+@@ -230,11 +213,9 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype)
+ 		}
+ 	}
+ 	fclose(child_data);
+-
+ 	int waitrc = TWFunc::Wait_For_Child(pid, &status, "Updater");
+ 	if (waitrc != 0)
+ 		return INSTALL_ERROR;
+-
+ 	return INSTALL_SUCCESS;
+ }
+ 
+@@ -253,12 +234,10 @@ bool isUpdatePkg(ZipArchiveHandle Zip) {
+ 
+ int TWinstall_zip(const char* path, int* wipe_cache, bool check_for_digest) {
+ 	int ret_val, zip_verify = 1, unmount_system = 1, reflashtwrp = 0;
+-
+ 	gui_msg(Msg("installing_zip=Installing zip file '{1}'")(path));
+ 	if (strlen(path) < 9 || strncmp(path, "/sideload", 9) != 0) {
+ 		string digest_str;
+ 		string Full_Filename = path;
+-
+ 		if (check_for_digest) {
+ 			gui_msg("check_for_digest=Checking for Digest file...");
+ 			if (*path != '@' && !twrpDigestDriver::Check_File_Digest(Full_Filename)) {
+@@ -267,19 +246,34 @@ int TWinstall_zip(const char* path, int* wipe_cache, bool check_for_digest) {
+ 			}
+ 		}
+ 	}
+-
+ 	DataManager::GetValue(TW_UNMOUNT_SYSTEM, unmount_system);
+-
+ #ifndef TW_OEM_BUILD
+ 	DataManager::GetValue(TW_SIGNED_ZIP_VERIFY_VAR, zip_verify);
+ #endif
+ 	DataManager::SetProgress(0);
+-
+ 	auto package = Package::CreateMemoryPackage(path);
+ 	if (!package) {
+ 		return INSTALL_CORRUPT;
+ 	}
+ 
++
++	int lpmake_super_mode = 0;
++	DataManager::GetValue("tw_install_super", lpmake_super_mode);
++	if (lpmake_super_mode) {
++		LOGINFO("lpmake_super mode activated - calling /system/bin/flashtool.sh\n");
++		time_t start, stop;
++		time(&start);
++		ret_val = Process_lpmake_super(path, wipe_cache);
++		time(&stop);
++		int total_time = (int) difftime(stop, start);
++		if (ret_val == INSTALL_SUCCESS) {
++			LOGINFO("lpmake_super install via flashtool.sh took %i second(s).\n", total_time);
++			gui_msg(Msg(msg::kHighlight, "install_took_seconds_msg=Install took {1} second(s).")(total_time));
++		}
++		return ret_val;
++	}
++
++
+ 	if (zip_verify) {
+ 		gui_msg("verify_zip_sig=Verifying zip signature...");
+ 		static constexpr const char* CERTIFICATE_ZIP_FILE = "/system/etc/security/otacerts.zip";
+@@ -289,7 +283,6 @@ int TWinstall_zip(const char* path, int* wipe_cache, bool check_for_digest) {
+ 			return -1;
+ 		}
+ 		LOGINFO("%zu key(s) loaded from %s\n", loaded_keys.size(), CERTIFICATE_ZIP_FILE);
+-
+ 		ret_val = verify_file(package.get(), loaded_keys, std::bind(&DataManager::SetProgress, std::placeholders::_1));
+ 		if (ret_val != VERIFY_SUCCESS) {
+ 			LOGINFO("Zip signature verification failed: %i\n", ret_val);
+@@ -302,14 +295,11 @@ int TWinstall_zip(const char* path, int* wipe_cache, bool check_for_digest) {
+ 			gui_msg("verify_zip_done=Zip signature verified successfully.");
+ 		}
+ 	}
+-
+ 	ZipArchiveHandle Zip = package->GetZipArchiveHandle();
+ 	if (!Zip) {
+ 		return INSTALL_CORRUPT;
+ 	}
+-
+ 	bool _isUpdatePkg = isUpdatePkg(Zip), _isABUpdatePkg = false;
+-
+ 	if (unmount_system) {
+ 		gui_msg("unmount_system=Unmounting System...");
+ 		if(!PartitionManager.UnMount_By_Path(PartitionManager.Get_Android_Root_Path(), true)) {
+@@ -319,10 +309,8 @@ int TWinstall_zip(const char* path, int* wipe_cache, bool check_for_digest) {
+ 		unlink("/system");
+ 		mkdir("/system", 0755);
+ 	}
+-
+ 	time_t start, stop;
+ 	time(&start);
+-
+ 	std::string update_binary_name(UPDATE_BINARY_NAME);
+ 	ZipEntry64 update_binary_entry;
+ 	if (FindEntry(Zip, update_binary_name, &update_binary_entry) == 0) {
+@@ -386,12 +374,88 @@ int TWinstall_zip(const char* path, int* wipe_cache, bool check_for_digest) {
+ 	} else {
+ 		LOGINFO("Install took %i second(s).\n", total_time);
+ 	}
+-
+ 	if (ret_val == INSTALL_SUCCESS) gui_msg(Msg(msg::kHighlight, "install_took_seconds_msg=Install took {1} second(s).")(total_time));
+-
+ 	if (_isUpdatePkg && ret_val == INSTALL_SUCCESS) {
+ 		if (DataManager::GetIntValue(TW_AUTO_DISABLE_AVB2_VAR)) PartitionManager.Disable_AVB2(true);
+ 	}
++	return ret_val;
++}
++
++
++static int Process_lpmake_super(const char *path, int* wipe_cache) {
++	(void)wipe_cache;
++	int ret_val = INSTALL_SUCCESS;
++	char command[PATH_MAX];
++	int pipe_fd[2];
++	FILE* child_data;
++	char buffer[1024];
++
++
++	if (pipe(pipe_fd) != 0) {
++		LOGERR("Failed to create pipe for flashtool.sh: %s\n", strerror(errno));
++		return INSTALL_ERROR;
++	}
++
++	snprintf(command, sizeof(command), "/system/bin/flashtool.sh \"%s\" 0 0 %d", path, pipe_fd[1]);
++	LOGINFO("Executing flashtool command: %s\n", command);
++
++	pid_t pid = fork();
++	if (pid == 0) {
++
++		close(pipe_fd[0]);
++		execl("/system/bin/sh", "sh", "-c", command, (char*)NULL);
++		LOGERR("Failed to execute flashtool.sh: %s\n", strerror(errno));
++		_exit(INSTALL_ERROR);
++	} else if (pid < 0) {
++		LOGERR("Failed to fork process for flashtool.sh: %s\n", strerror(errno));
++		close(pipe_fd[0]);
++		close(pipe_fd[1]);
++		return INSTALL_ERROR;
++	}
+ 
++
++	close(pipe_fd[1]);
++	child_data = fdopen(pipe_fd[0], "r");
++	if (!child_data) {
++		LOGERR("Failed to open pipe for reading: %s\n", strerror(errno));
++		close(pipe_fd[0]);
++		waitpid(pid, NULL, 0);
++		return INSTALL_ERROR;
++	}
++
++
++	while (fgets(buffer, sizeof(buffer), child_data) != NULL) {
++		char* cmd = strtok(buffer, " \n");
++		if (!cmd) continue;
++
++
++		if (strcmp(cmd, "progress") == 0) {
++			char* fraction_str = strtok(NULL, " \n");
++			char* seconds_str = strtok(NULL, " \n");
++			if (fraction_str && seconds_str) {
++				float fraction = strtof(fraction_str, NULL);
++				int seconds = strtol(seconds_str, NULL, 10);
++				DataManager::ShowProgress(fraction, seconds);
++			}
++		}
++		else if (strcmp(cmd, "ui_print") == 0) {
++			char* msg = strtok(NULL, "\n");
++			if (msg) gui_print("%s", msg);
++			else gui_print("\n");
++		}
++	}
++
++	int status;
++	waitpid(pid, &status, 0);
++	fclose(child_data);
++
++	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
++		LOGERR("flashtool.sh execution failed (exit code: %d)\n", WEXITSTATUS(status));
++		gui_err("lpmake_super_fail=install failed!");
++		ret_val = INSTALL_ERROR;
++	} else {
++		gui_msg("lpmake_super_success=install completed successfully!");
++	}
++    DataManager::SetValue("tw_install_super", 0);
+ 	return ret_val;
+ }
+diff --git a/variables.h b/variables.h
+index 9d439ec..f6e60c1 100755
+--- a/variables.h
++++ b/variables.h
+@@ -79,6 +79,7 @@
+ #define TW_SKIP_DIGEST_CHECK_ZIP_VAR    "tw_skip_digest_check_zip"
+ #define TW_SIGNED_ZIP_VERIFY_VAR    "tw_signed_zip_verify"
+ #define TW_INSTALL_REBOOT_VAR       "tw_install_reboot"
++#define TW_INSTALL_SUPER_VAR		"tw_install_super"
+ #define TW_TIME_ZONE_VAR            "tw_time_zone"
+ #define TW_RM_RF_VAR                "tw_rm_rf"
+ 

@@ -107,6 +107,38 @@ jobs:
       run: |
         git clone ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} device/${{ github.event.inputs.DEVICE_PATH }}
 
+    - name: Apply device tree patches to bootable/recovery
+      run: |
+        PATCH_DIR="device/${{ github.event.inputs.DEVICE_PATH }}/patches"
+        TARGET_DIR="bootable/recovery" 
+
+        if [ ! -d "$PATCH_DIR" ]; then
+          echo "No patches directory found in device tree, skipping patch application."
+          exit 0
+        fi
+
+
+        PATCH_FILES=$(find $PATCH_DIR -name "*.patch" | sort)
+        if [ -z "$PATCH_FILES" ]; then
+          echo "No .patch files found in $PATCH_DIR, skipping patch application."
+          exit 0
+        fi
+
+
+        for patch in $PATCH_FILES; do
+          echo "Applying patch: $(basename $patch)"
+          
+
+          if git apply --check --directory="$TARGET_DIR" "$patch"; then
+            git apply --directory="$TARGET_DIR" "$patch"
+            echo "Successfully applied: $(basename $patch)"
+          else
+            echo "ERROR: Patch conflict detected - $(basename $patch)"
+            # exit 1 
+          fi
+        done
+      continue-on-error: true
+
     - name: Generate build info
       run: |
         echo -e "$BUILD_INFO" >> INFO.txt
