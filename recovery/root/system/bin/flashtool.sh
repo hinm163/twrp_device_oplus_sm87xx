@@ -99,15 +99,15 @@ ui_print "--解包用时: $(( $(date +%s) - startTime_s )) 秒"
 
 
 
-if [ -b "/dev/block/mapper/my_company${slot}" ]; then
-    ui_print "从当前系统复制my_company,my_preload"
+if [ -b "/dev/block/mapper/my_company${slot}" ] && [ -b "/dev/block/mapper/my_region${slot}" ]; then
+    ui_print "--复制当前系统的 my_company 和 my_preload"
     dd if="/dev/block/mapper/my_company${slot}" of="$tmpdir/payload/my_company.img" bs=4M
     dd if="/dev/block/mapper/my_preload${slot}" of="$tmpdir/payload/my_preload.img" bs=4M
 else
-    ui_print "使用氧系统的my_company,my_preload"
-    cp -f "/system/bin/my_company.img" "/system/bin/my_preload.img" "$tmpdir/payload/"
+    ui_print "--使用预置氧系统的 my_company 和 my_preload"
+    cp -f "/system/bin/my_company.img" "$tmpdir/payload/"
+    cp -f "/system/bin/my_preload.img" "$tmpdir/payload/"
 fi
-
 
 
 ui_print "--合成super.img..."
@@ -134,4 +134,3 @@ avbctl disable-verity --force && avbctl disable-verification --force
 rm -rf /tmp $tmpdir
 ui_print "---安装完成，挂载失败提示可忽略---"
 show_progress 0.1 10;
-
