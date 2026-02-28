@@ -97,17 +97,9 @@ startTime_s=$(date +%s)
 payload_extract -i "$package" -x -o "$tmpdir/payload" -T4
 ui_print "--解包用时: $(( $(date +%s) - startTime_s )) 秒"
 
-
-
-if [ -b "/dev/block/mapper/my_company${slot}" ] && [ -b "/dev/block/mapper/my_region${slot}" ]; then
-    ui_print "--复制当前系统的 my_company 和 my_preload"
-    dd if="/dev/block/mapper/my_company${slot}" of="$tmpdir/payload/my_company.img" bs=4M
-    dd if="/dev/block/mapper/my_preload${slot}" of="$tmpdir/payload/my_preload.img" bs=4M
-else
-    ui_print "--使用预置氧系统的 my_company 和 my_preload"
-    cp -f "/system/bin/my_company.img" "$tmpdir/payload/"
-    cp -f "/system/bin/my_preload.img" "$tmpdir/payload/"
-fi
+ui_print "--使用预置氧系统的 my_company 和 my_preload"
+cp -f "/system/bin/my_company.img" "$tmpdir/payload/"
+cp -f "/system/bin/my_preload.img" "$tmpdir/payload/"
 
 
 ui_print "--合成super.img..."
